@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>ULTRABOWL</title>
+</head>
+
+<body>
+    <div id="menu" class="screen">
+        <div id="info"></div>
+        <div id="schedule"></div>
+        <div id="menu-columns">
+            <div id="division"></div>
+            <div id="teamdata"></div>
+            <div id="fans"></div>
+        </div>
+        <div id="btns">
+            <button onclick="goSettings()">Settings</button>
+            <button onclick="goOffice()">Office</button>
+            <button onclick="goRoster()">Roster</button>
+            <button onclick="goLeague()">League</button>
+            <button onclick="goTrades()">Trades</button>
+            <button id="contt" onclick="cont()">Continue</button>
+        </div>
+        <div id="week"></div>
+    </div>
+    <div id="settings" class="screen" style="display:none;">
+        <button onclick="goMenu()">Back</button>
+    </div>
+    <div id="office" class="screen" style="display:none;">
+        <button onclick="goMenu()">Back</button>
+    </div>
+    <div id="roster" class="screen" style="display:none;">
+        <div class="colleft">
+            <button onclick="goMenu()">Back</button>
+            <br>
+            <select id="teamselect"></select><button id="pickteam">Pick Team</button>
+            <br>
+            <div id="myplayers"></div><br>
+            <div id="teamstats"></div><br>
+        </div>
+        <div class="colright">
+            <div id="playerview">
+                <span id="s_pos"></span> <span id="s_name"></span><br>
+                Age <span id="s_age"></span><br>
+                Overall <span id="s_ovr"></span><br>
+                Strength <span id="s_str"></span><br>
+                Speed <span id="s_spd"></span><br>
+                Stamina <span id="s_sta"></span><br>
+                <span id="posspecific"></span> <span id="s_ps"></span><br>
+                <div id="pstats"></div>
+            </div>
+        </div>
+    </div>
+    <div id="league" class="screen" style="display:none;">
+        <button onclick="goMenu()">Back</button>
+        <br>
+        <button id="gen" onclick="generateLeague()">Generate League</button><br>
+        <button onclick="display('afc')">AFC</button><br>
+        <button onclick="display('nfc')">NFC</button><br>
+        <button onclick="display('playoff')">Playoffs</button><br>
+        <button onclick="display('leaders')">Leaders</button><br>
+        <div id="teamslist" style="display:none;"></div>
+        <div id="leagueview">
+            <div id="afc"></div>
+            <div id="nfc"></div>
+            <div id="playoffpicture"></div>
+            <div id="leaders"></div>
+        </div>
+    </div>
+
+    <!-- DRAFT SCREEN -->
+    <div id="draft" class="screen" style="display:none;">
+        <div id="draft-content"></div>
+    </div>
+
+    <!-- TRADES SCREEN -->
+    <div id="trades" class="screen" style="display:none;">
+        <div id="trades-header" style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <button onclick="goMenuFromTrades()">← BACK</button>
+            <span style="font-family:var(--head);font-size:20px;font-weight:700;letter-spacing:0.1em;color:var(--accent);">TRADES</span>
+            <button id="trades-hub-btn" onclick="tradeScreenState.mode='hub';renderTradeScreen()" style="font-size:11px;padding:5px 12px;">HUB</button>
+        </div>
+        <div id="trades-content"></div>
+    </div>
+
+    <!-- GAMEPLAY SCREEN (dynamically created by gameplay.js, but pre-registered for hideAll) -->
+    <div id="gp-screen" style="display:none;padding:0;"></div>
+
+    <link rel="stylesheet" href="style.css">
+    <script>
+        var menu = document.getElementById("menu");
+        var settings = document.getElementById("settings");
+        var office = document.getElementById("office");
+        var roster = document.getElementById("roster");
+        var league = document.getElementById("league");
+        var draft = document.getElementById("draft");
+        var trades = document.getElementById("trades");
+        var gpScreen = document.getElementById("gp-screen");
+
+        function hideAll() {
+            menu.style.display = "none";
+            settings.style.display = "none";
+            office.style.display = "none";
+            roster.style.display = "none";
+            league.style.display = "none";
+            draft.style.display = "none";
+            trades.style.display = "none";
+            gpScreen.style.display = "none";
+            const dem = document.getElementById("demands");
+            if (dem) dem.style.display = "none";
+        }
+        function goMenu() { hideAll(); menu.style.display = "block"; }
+        function goSettings() { hideAll(); settings.style.display = "block"; if(typeof renderSettingsScreen !== "undefined") renderSettingsScreen(); }
+        function goOffice() { hideAll(); office.style.display = "block"; if(typeof renderOfficeScreen !== "undefined") renderOfficeScreen(); }
+        function goRoster() {
+            hideAll(); roster.style.display = "block";
+            document.getElementById("teamselect").dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        function goLeague() { hideAll(); league.style.display = "block"; }
+        function goDraft() { hideAll(); draft.style.display = "flex"; }
+        function goMenuFromTrades() { hideAll(); menu.style.display = "block"; }
+    </script>
+    <script src="script.js"></script>
+    <script src="gameplay.js"></script>
+</body>
+
+</html>
