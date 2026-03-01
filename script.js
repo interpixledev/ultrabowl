@@ -87,6 +87,17 @@ var statmaps = [
     "interception_touchdowns",
     "passes_defended",
 ]
+
+function clearUsedDraftPicks() {
+    for (const team of allteams) {
+        // Remove all current-year picks (futureYear 0 or missing).
+        // Future picks (futureYear > 0) survive; they will be decremented
+        // by assignDraftPicks next season.
+        team.draftPicks = (team.draftPicks || []).filter(
+            pk => (pk.futureYear || 0) > 0
+        );
+    }
+}
 class Player {
     constructor() {
         this.name = "";
@@ -341,7 +352,7 @@ class Team {
     // minimum position requirements.  Returns true if a player was cut.
     cpuCutWorstSurplus() {
         // Minimum we must keep at each position
-        const minimums = { QB:1, K:1, RB:1, WR:1, TE:1, OL:2, DL:1, LB:1, DB:1 };
+        const minimums = { QB: 1, K: 1, RB: 1, WR: 1, TE: 1, OL: 2, DL: 1, LB: 1, DB: 1 };
 
         let worst = null;
         let worstScore = Infinity;
@@ -363,7 +374,7 @@ class Team {
 
     // How many "surplus" players does this team have beyond all ideal counts?
     surplusCount() {
-        const ideals = { QB:1, K:1, RB:1, WR:2, TE:2, OL:3, DL:2, LB:2, DB:2 };
+        const ideals = { QB: 1, K: 1, RB: 1, WR: 2, TE: 2, OL: 3, DL: 2, LB: 2, DB: 2 };
         let surplus = 0;
         for (const [pos, ideal] of Object.entries(ideals)) {
             const count = this.players.filter(p => p.position === pos).length;
@@ -761,8 +772,8 @@ sel.addEventListener("change", function () {
 
             dv.innerHTML = `<span class="card-pos">${player.position}</span>${badges}${moraleStrip}<span class="card-name">${firstName}<br>${lastName}</span><span class="card-stars">${toStars(player.overall())}</span>`;
 
-            (function(p) {
-                dv.addEventListener("click", function() {
+            (function (p) {
+                dv.addEventListener("click", function () {
                     document.querySelectorAll('.player-card').forEach(c => c.classList.remove('player-card--selected'));
                     dv.classList.add('player-card--selected');
                     renderPlayerDetail(p, isOwnTeam);
@@ -831,9 +842,6 @@ function renderPlayerDetail(player, isOwnTeam) {
             </div>
             ${moraleBar(player.morale)}
             <div class="detail-loyalty">With team: ${loyaltyStr}</div>
-            <div class="detail-interact-btns">
-                <button class="praise-btn" onclick="praisePlayer('${player.name.replace(/'/g,"\\'")}')">💬 Praise (+12 Morale)</button>
-            </div>
         `;
     } else {
         moraleEl.innerHTML = "";
@@ -896,10 +904,10 @@ function renderPlayerDetail(player, isOwnTeam) {
         noBtn.style.cssText = "font-size:11px;padding:4px 10px;margin:0;";
         confirmDiv.appendChild(confirmMsg); confirmDiv.appendChild(yesBtn); confirmDiv.appendChild(noBtn);
 
-        cutBtn.addEventListener("click", function() {
+        cutBtn.addEventListener("click", function () {
             confirmDiv.style.display = confirmDiv.style.display === "none" ? "block" : "none";
         });
-        yesBtn.addEventListener("click", function() {
+        yesBtn.addEventListener("click", function () {
             const viewingPlayerTeam = allteams.find(t => t.playerTeam);
             const idx = viewingPlayerTeam.players.indexOf(player);
             if (idx !== -1) {
@@ -913,7 +921,7 @@ function renderPlayerDetail(player, isOwnTeam) {
                 sel.dispatchEvent(new Event("change", { bubbles: true }));
             }
         });
-        noBtn.addEventListener("click", function() { confirmDiv.style.display = "none"; });
+        noBtn.addEventListener("click", function () { confirmDiv.style.display = "none"; });
         cutBtnEl.appendChild(cutBtn); cutBtnEl.appendChild(confirmDiv);
     }
 
@@ -977,9 +985,9 @@ const POSITIONS_POOL = ["QB", "RB", "WR", "WR", "WR", "TE", "TE", "OL", "OL", "D
 // Rating ranges per round (min, max) on 1–10 scale
 // Round 1: 2.5-3★ = 5-6/10   Round 2: 1.5-2★ = 3-4/10   Round 3: 0.5-1★ = 1-2/10
 const ROUND_STAT_RANGES = {
-    1: [2, 10],
-    2: [1, 6],
-    3: [1, 3],
+    1: [3, 10],
+    2: [2, 8],
+    3: [1, 6],
 };
 
 var draftState = {
@@ -1140,8 +1148,7 @@ function renderDemandsBadge() {
 
 // ── Demands screen ──
 function goDemands() {
-    const allScreens = ["menu","settings","office","roster","league","draft","trades","demands"];
-    allScreens.forEach(id => { const el = document.getElementById(id); if(el) el.style.display = "none"; });
+    hideAll();
     let el = document.getElementById("demands");
     if (!el) {
         el = document.createElement("div");
@@ -1175,9 +1182,9 @@ function renderDemandsScreen(el) {
             <div class="demand-card-right">
                 <div class="demand-type ${typeClass}">${typeLabel}</div>
                 <div class="demand-desc">${p.demandPending === "trade"
-                    ? `${p.name} is unhappy and wants out. Trade them or try to repair the relationship.`
-                    : `${p.name} feels underused. Praise them or accept their demand.`
-                }</div>
+                ? `${p.name} is unhappy and wants out. Trade them or try to repair the relationship.`
+                : `${p.name} feels underused. Praise them or accept their demand.`
+            }</div>
                 <div class="demand-actions">
                     <button class="demand-btn demand-btn-praise" onclick="demandAction('${p.name}','praise')">💬 PRAISE (+15 Morale)</button>
                     <button class="demand-btn demand-btn-meet" onclick="demandAction('${p.name}','meet')">🤝 PROMISE MORE ROLE (+25 Morale, drops demand)</button>
@@ -1240,6 +1247,23 @@ function criticizePlayer(playerName) {
 }
 
 // Return the total salary cap used by the player team
+function updateCapBlocker() {
+    // Re-render the week/play area so the cap blocker message appears/clears immediately
+    // when the salary cap slider is changed in settings.
+    const pt = allteams.find(t => t.playerTeam);
+    if (!pt) return;
+    const capUsed = getCapUsed(pt);
+    const wkEl = document.getElementById("week");
+    if (!wkEl) return;
+    if (capUsed > SALARY_CAP) {
+        const over = Math.round((capUsed - SALARY_CAP) * 10) / 10;
+        wkEl.innerHTML = `<div style="color:var(--red);font-family:var(--head);font-size:16px;font-weight:700;letter-spacing:0.06em;padding:8px 0;">⛔ OVER THE SALARY CAP BY $${over}M</div><div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:4px;">You cannot advance until you are under the $${SALARY_CAP}M cap. Cut or renegotiate contracts in the Office.</div>`;
+    } else {
+        // Clear any cap warning — restore normal week display
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+}
+
 function getCapUsed(playerTeam) {
     return Math.round(playerTeam.players.reduce((sum, p) => sum + (p.contract_salary || 0), 0) * 10) / 10;
 }
@@ -1301,7 +1325,7 @@ function assetValue(asset) {
 // ─────────────────────────────────────────────────────────────────────
 function cpuEvaluateTrade(cpuTeam, theyGive, theyReceive) {
     const giveVal = theyGive.reduce((s, a) => s + assetValue(a), 0);
-    const getVal  = theyReceive.reduce((s, a) => s + assetValue(a), 0);
+    const getVal = theyReceive.reduce((s, a) => s + assetValue(a), 0);
     if (giveVal === 0) return false; // CPU never accepts getting nothing
     // Require threshold based on agression setting — random band so identical offers aren't
     // always accepted/rejected deterministically.
@@ -1355,6 +1379,50 @@ function executeTrade(team1, team1Gives, team2, team2Gives) {
             team1.draftPicks.push({ round: asset.round, pick: asset.pick, overall: asset.overall, fromTrade: true, futureYear: asset.futureYear || 0, _origTeam: asset._origTeam || team2.name });
         }
     }
+
+    // ── CPU QB EMERGENCY REPLACEMENT ────────────────────────────────────────
+    // After any trade, check if a CPU team is now missing a QB (or has only
+    // a very weak one). If so, generate a replacement at half the previous QB's skill.
+    function ensureCpuQB(team) {
+        if (team.playerTeam) return; // only for CPU teams
+        const qbs = team.players.filter(p => p.position === "QB");
+        // Find the best QB traded away in this transaction
+        const tradedQBs = [...team1Gives, ...team2Gives]
+            .filter(a => a.type === "player" && a.player.position === "QB" && a.player.team !== team);
+        if (qbs.length === 0 || (qbs.length === 1 && qbs[0].overall() < 3)) {
+            // Determine skill of replacement (half of traded QB, or fallback ~3)
+            let refSkill = 6; // default mid-level
+            if (tradedQBs.length > 0) {
+                refSkill = tradedQBs[0].player.overall();
+            } else if (qbs.length > 0) {
+                refSkill = qbs[0].overall();
+            }
+            const targetSkill = Math.max(2, Math.round(refSkill * 0.5));
+            const replacement = new Player();
+            replacement.name = generateName();
+            replacement.position = "QB";
+            replacement.unit = "offense";
+            replacement.age = randrange(22, 27);
+            replacement.team = team;
+            // Set stats to land roughly at targetSkill overall
+            const s = clamp(targetSkill + randrange(-1, 1), 1, 10);
+            replacement.strength = clamp(s + randrange(-1, 1), 1, 10);
+            replacement.speed = clamp(s + randrange(-1, 1), 1, 10);
+            replacement.stamina = clamp(s + randrange(-1, 1), 1, 10);
+            replacement.accuracy = clamp(s + randrange(-1, 1), 1, 10);
+            replacement.tackling = s; replacement.catching = s; replacement.blocking = s;
+            replacement.contract_type = 'veteran';
+            replacement.contract_years_left = randrange(1, 3);
+            replacement.contract_salary = 0; // CPU teams don't track cap
+            replacement.stats.week = [];
+            replacement.morale = 70;
+            team.players.push(replacement);
+        }
+    }
+
+    // Check both teams involved in the trade
+    ensureCpuQB(team1);
+    ensureCpuQB(team2);
 }
 
 // CPU generates random trade offers toward the player team (called each week)
@@ -1417,10 +1485,10 @@ function maybeCpuTradeOffer() {
         const allPlayerPicks = playerTeam.draftPicks || [];
         if (!allCpuPicks.length || !allPlayerPicks.length) return;
         const cpuPick = allCpuPicks[randrange(0, allCpuPicks.length - 1)];
-        const playerPick = allPlayerPicks.filter(p => (p.futureYear||0) === 0);
+        const playerPick = allPlayerPicks.filter(p => (p.futureYear || 0) === 0);
         if (!playerPick.length) return;
         const pp = playerPick[randrange(0, playerPick.length - 1)];
-        if (cpuPick.round === pp.round && (cpuPick.futureYear||0) === 0) return;
+        if (cpuPick.round === pp.round && (cpuPick.futureYear || 0) === 0) return;
         // Only offer if CPU pick gives upgrade value (earlier round or current vs future)
         theyGive = [{ type: "pick", ...cpuPick }];
         theyWant = [{ type: "pick", ...pp }];
@@ -1561,15 +1629,106 @@ function showResignModal() {
 
     const capUsed = getCapUsed(playerTeam);
     const capLeft = Math.round((SALARY_CAP - capUsed) * 10) / 10;
-    const baseSal = Math.round(calcMarketSalary(player) * (1.0 + Math.random() * 0.15) * 10) / 10;
-    // Morale discount: loyal happy players ask less
-    const moraleMult = moraleContractMultiplier(player);
-    const marketSal = Math.round(baseSal * moraleMult * 10) / 10;
-    const askingYears = randrange(2, 4);
-    const m = moraleLabel(player.morale);
 
-    // Store the offer on the modal state
-    resignState.currentOffer = { salary: marketSal, years: askingYears, canAfford: capLeft >= marketSal };
+    // BUGFIX: Force veteran pricing even for expired rookie contracts
+    const savedContractType = player.contract_type;
+    player.contract_type = 'veteran';
+    const marketBase = Math.round(calcMarketSalary(player) * 10) / 10;
+    player.contract_type = savedContractType;
+
+    // Morale determines how flexible the player is and their floor year requirement
+    const morale = player.morale || 75;
+    const moraleMult = moraleContractMultiplier(player);
+
+    // The player's "desired" salary — what they'd accept at fair years
+    const desiredSalary = Math.round(marketBase * moraleMult * 10) / 10;
+
+    // Minimum years the player will accept (unhappy players want longer security)
+    // Happy (80+): fine with 1yr. Neutral (55-79): want 2yr. Unhappy (<55): want 3yr+
+    const minAcceptableYears = morale >= 80 ? 1 : morale >= 55 ? 2 : 3;
+
+    // Store negotiation state
+    resignState.negotiating = {
+        player,
+        desiredSalary,
+        marketBase,
+        minAcceptableYears,
+        selectedYears: Math.max(2, minAcceptableYears), // default selection
+        moraleMult,
+    };
+
+    renderResignNegotiation();
+}
+
+function calcNegotiationSalary(years, desiredSalary, minAcceptableYears, morale) {
+    // Longer deal = player discounts salary (security trade-off)
+    // Shorter than min = salary premium demanded
+    const baseYears = Math.max(2, minAcceptableYears);
+    if (years < minAcceptableYears) {
+        // Player demands a premium for taking a short deal they don't want
+        const shortPremium = 1 + (minAcceptableYears - years) * 0.18;
+        return Math.round(desiredSalary * shortPremium * 10) / 10;
+    }
+    // Longer deals: small discount per year over baseline (player values security)
+    const extraYears = years - baseYears;
+    const longDiscount = 1 - extraYears * 0.06;
+    return Math.round(desiredSalary * longDiscount * 10) / 10;
+}
+
+function willPlayerAccept(years, salary, desiredSalary, minAcceptableYears, morale) {
+    // Player accepts if we're offering >= their expected salary for these years
+    const requiredSal = calcNegotiationSalary(years, desiredSalary, minAcceptableYears, morale);
+    // A small morale-based chance they accept even slightly below asking
+    const tolerance = morale >= 75 ? 0.92 : morale >= 55 ? 0.96 : 1.0;
+    return salary >= requiredSal * tolerance;
+}
+
+function renderResignNegotiation() {
+    const playerTeam = allteams.find(t => t.playerTeam);
+    const neg = resignState.negotiating;
+    if (!neg) return;
+    const { player, desiredSalary, marketBase, minAcceptableYears, selectedYears, moraleMult } = neg;
+
+    const capUsed = getCapUsed(playerTeam);
+    const capLeft = Math.round((SALARY_CAP - capUsed) * 10) / 10;
+    const m = moraleLabel(player.morale || 75);
+    const loyaltyYrs = player.seasonsWithTeam || 0;
+    const loyaltyStr = loyaltyYrs === 0 ? "New" : loyaltyYrs === 1 ? "1 season" : `${loyaltyYrs} seasons`;
+
+    // Compute what salary they want at the current selected years
+    const requiredSal = calcNegotiationSalary(selectedYears, desiredSalary, minAcceptableYears, player.morale || 75);
+    const totalVal = Math.round(requiredSal * selectedYears * 10) / 10;
+    const capAfter = Math.round((capUsed + requiredSal) * 10) / 10;
+    const overCap = capAfter > SALARY_CAP;
+
+    // Acceptance likelihood hint
+    let acceptHint, acceptClass;
+    if (selectedYears < minAcceptableYears) {
+        acceptHint = "⚠ Player prefers a longer deal — higher salary demanded";
+        acceptClass = "neg-hint-warn";
+    } else if (selectedYears === minAcceptableYears) {
+        acceptHint = "✓ Fair length for this player's morale";
+        acceptClass = "neg-hint-ok";
+    } else {
+        acceptHint = "★ Long-term security — player may discount salary";
+        acceptClass = "neg-hint-good";
+    }
+
+    // Year buttons
+    let yearBtns = '';
+    for (let y = 1; y <= 4; y++) {
+        const sal = calcNegotiationSalary(y, desiredSalary, minAcceptableYears, player.morale || 75);
+        const isSel = y === selectedYears;
+        const isMin = y === minAcceptableYears;
+        yearBtns += `<div class="neg-year-btn ${isSel ? 'neg-year-btn--selected' : ''}" onclick="resignSetYears(${y})">
+            <div class="neg-year-num">${y}yr</div>
+            <div class="neg-year-sal">$${sal}M</div>
+            ${isMin ? '<div class="neg-year-min">MIN</div>' : ''}
+        </div>`;
+    }
+
+    const retireWarning = player.age >= 33 ? `<div class="resign-retire-warn">⚠ Age ${player.age} — nearing retirement</div>` : "";
+    const capWarning = overCap ? `<div class="resign-cap-warn">⚠ Would exceed salary cap by $${Math.round((capAfter - SALARY_CAP) * 10) / 10}M</div>` : "";
 
     let modal = document.getElementById("resign-modal");
     if (!modal) {
@@ -1578,70 +1737,142 @@ function showResignModal() {
         document.body.appendChild(modal);
     }
 
-    const ovr = player.overall().toFixed(1);
-    const stars = toStars(player.overall());
-    const retireWarning = player.age >= 33 ? `<div class="resign-retire-warn">⚠ Age ${player.age} — may retire soon</div>` : "";
-    const capWarning = !resignState.currentOffer.canAfford ? `<div class="resign-cap-warn">⚠ Only $${capLeft}M cap space remaining!</div>` : "";
-    const remaining = resignState.queue.length - resignState.currentIdx;
-    const loyaltyYrs = player.seasonsWithTeam || 0;
-    const loyaltyStr = loyaltyYrs === 0 ? "New arrival" : loyaltyYrs === 1 ? "1 season" : `${loyaltyYrs} seasons`;
-    const discountPct = Math.round((1 - moraleMult) * 100);
-    const discountNote = discountPct > 0
-        ? `<div class="resign-morale-note morale-discount">✓ ${discountPct}% loyalty/morale discount applied</div>`
-        : discountPct < 0
-        ? `<div class="resign-morale-note morale-premium">⚠ ${Math.abs(discountPct)}% premium — player is unhappy</div>`
-        : "";
-
     modal.innerHTML = `
     <div class="resign-overlay">
-        <div class="resign-card">
-            <div class="resign-round">${resignState.currentIdx + 1} OF ${resignState.queue.length} EXPIRING CONTRACTS</div>
-            <div class="resign-player-name">${player.name}</div>
-            <div class="resign-player-info">${player.position} · ${stars} · Age ${player.age}</div>
-            <div class="resign-morale-row">
-                <span class="${m.cls}">${m.txt}</span>
-                <span class="resign-loyalty">with team: ${loyaltyStr}</span>
+        <div class="resign-card resign-card--negotiation">
+            <div class="neg-header">
+                <div class="neg-progress">${resignState.currentIdx + 1} of ${resignState.queue.length} contracts</div>
+                <div class="neg-player-name">${player.name}</div>
+                <div class="neg-player-meta">${player.position} · ${toStars(player.overall())} · Age ${player.age}</div>
+                <div class="neg-morale-row">
+                    <span class="${m.cls} neg-morale-val">${m.txt}</span>
+                    <span class="neg-loyalty">🏠 ${loyaltyStr}</span>
+                </div>
+                ${moraleBar(player.morale || 75)}
             </div>
-            ${moraleBar(player.morale)}
+
             ${retireWarning}
-            <div class="resign-offer">
-                <div class="resign-offer-label">ASKING PRICE</div>
-                <div class="resign-offer-value">$${marketSal}M / year · ${askingYears} years</div>
-                <div class="resign-offer-total">$${Math.round(marketSal * askingYears * 10)/10}M total</div>
-                ${discountNote}
+
+            <div class="neg-section-label">SELECT CONTRACT LENGTH</div>
+            <div class="neg-year-grid">${yearBtns}</div>
+
+            <div class="neg-hint ${acceptClass}">${acceptHint}</div>
+
+            <div class="neg-summary">
+                <div class="neg-summary-row">
+                    <span class="neg-summary-label">SALARY / YR</span>
+                    <span class="neg-summary-val">$${requiredSal}M</span>
+                </div>
+                <div class="neg-summary-row">
+                    <span class="neg-summary-label">TOTAL VALUE</span>
+                    <span class="neg-summary-val">$${totalVal}M</span>
+                </div>
+                <div class="neg-summary-row">
+                    <span class="neg-summary-label">CAP AFTER</span>
+                    <span class="neg-summary-val ${overCap ? 'neg-over-cap' : ''}">$${capAfter}M / $${SALARY_CAP}M</span>
+                </div>
             </div>
+
             ${capWarning}
-            <div class="resign-cap-info">Cap space: <strong>$${capLeft}M</strong></div>
-            <div class="resign-actions">
-                <button class="resign-btn resign-btn--sign" onclick="resignPlayer(true)">✓ SIGN ($${marketSal}M/yr)</button>
-                <button class="resign-btn resign-btn--cut" onclick="resignPlayer(false)">✕ LET GO</button>
+
+            <div class="neg-actions">
+                <button class="resign-btn resign-btn--sign" onclick="submitResignOffer()" ${overCap ? 'disabled style="opacity:0.4;"' : ''}>
+                    ✓ OFFER ${selectedYears}yr / $${requiredSal}M
+                </button>
+                <button class="resign-btn resign-btn--cut" onclick="resignPlayer(false)">
+                    ✕ LET GO
+                </button>
             </div>
         </div>
     </div>`;
     modal.style.display = "block";
 }
 
-function resignPlayer(sign) {
+function resignSetYears(years) {
+    if (!resignState.negotiating) return;
+    resignState.negotiating.selectedYears = years;
+    renderResignNegotiation();
+}
+
+function submitResignOffer() {
+    const playerTeam = allteams.find(t => t.playerTeam);
+    const neg = resignState.negotiating;
+    if (!neg) return;
+    const { player, desiredSalary, minAcceptableYears, selectedYears } = neg;
+    const requiredSal = calcNegotiationSalary(selectedYears, desiredSalary, minAcceptableYears, player.morale || 75);
+
+    const accepted = willPlayerAccept(selectedYears, requiredSal, desiredSalary, minAcceptableYears, player.morale || 75);
+
+    if (accepted) {
+        player.contract_salary = requiredSal;
+        player.contract_years_left = selectedYears;
+        player.contract_type = "veteran";
+        // Small morale boost for getting a deal done
+        player.morale = clamp((player.morale || 75) + 5, 0, 100);
+        advanceResignQueue();
+    } else {
+        // Show rejection — player walks
+        showResignRejection(player, requiredSal, selectedYears);
+    }
+}
+
+function showResignRejection(player, offeredSal, offeredYears) {
+    const modal = document.getElementById("resign-modal");
+    if (!modal) return;
+    const card = modal.querySelector(".resign-card");
+    if (!card) return;
+
+    // Morale-flavored rejection message
+    const morale = player.morale || 75;
+    let msg;
+    if (morale < 35) msg = `"I'm done here. This offer is insulting."`;
+    else if (morale < 55) msg = `"That's not going to work for me."`;
+    else msg = `"I was expecting better. I'll test the market."`;
+
+    card.innerHTML = `
+        <div class="neg-rejection">
+            <div class="neg-rejection-icon">✕</div>
+            <div class="neg-rejection-name">${player.name}</div>
+            <div class="neg-rejection-msg">${msg}</div>
+            <div class="neg-rejection-detail">${player.position} · ${toStars(player.overall())} · offered $${offeredSal}M / ${offeredYears}yr</div>
+            <button class="resign-btn resign-btn--cut" onclick="resignPlayerWalk()" style="margin-top:20px;width:100%;">
+                CONTINUE →
+            </button>
+        </div>`;
+}
+
+function resignPlayerWalk() {
+    // Player rejected the offer — they leave
     const playerTeam = allteams.find(t => t.playerTeam);
     const player = resignState.queue[resignState.currentIdx];
-    if (!player) return;
-
-    if (sign) {
-        const offer = resignState.currentOffer;
-        player.contract_salary = offer.salary;
-        player.contract_years_left = offer.years;
-        player.contract_type = "veteran";
-    } else {
-        // Player leaves
+    if (player) {
         const idx = playerTeam.players.indexOf(player);
         if (idx !== -1) playerTeam.players.splice(idx, 1);
     }
+    advanceResignQueue();
+}
 
+function advanceResignQueue() {
     resignState.currentIdx++;
+    resignState.negotiating = null;
     if (resignState.currentIdx >= resignState.queue.length) {
         closeResignModal();
     } else {
         showResignModal();
+    }
+}
+
+function resignPlayer(sign) {
+    // "Let go" path — skip negotiation
+    if (!sign) {
+        const playerTeam = allteams.find(t => t.playerTeam);
+        const player = resignState.queue[resignState.currentIdx];
+        if (player) {
+            const idx = playerTeam.players.indexOf(player);
+            if (idx !== -1) playerTeam.players.splice(idx, 1);
+        }
+        advanceResignQueue();
+        return;
     }
 }
 
@@ -1655,7 +1886,6 @@ function closeResignModal() {
         setTimeout(cb, 200);
     }
 }
-
 
 // =====================================================================
 // SETTINGS SYSTEM
@@ -1707,8 +1937,8 @@ function renderSettingsScreen() {
     const el = document.getElementById("settings");
     const s = gameSettings;
 
-    const diffOptions = ["easy","normal","hard","gm"];
-    const diffLabels = { easy:"Easy", normal:"Normal", hard:"Hard", gm:"GM Mode" };
+    const diffOptions = ["easy", "normal", "hard", "gm"];
+    const diffLabels = { easy: "Easy", normal: "Normal", hard: "Hard", gm: "GM Mode" };
     const diffDescs = {
         easy: "CPU accepts trades more easily. Players age slower.",
         normal: "Balanced experience. Recommended for first playthrough.",
@@ -1745,8 +1975,8 @@ function renderSettingsScreen() {
                         <span class="settings-hint">Total cap space per season</span>
                     </div>
                     <div class="settings-row-control">
-                        <input type="range" min="80" max="200" step="5" value="${s.salaryCap}"
-                            oninput="gameSettings.salaryCap=+this.value; document.getElementById('cap-val').textContent='$'+this.value+'M'; SALARY_CAP_VAR=+this.value;">
+                        <input type="range" min="80" max="300" step="5" value="${s.salaryCap}"
+                            oninput="gameSettings.salaryCap=+this.value; SALARY_CAP=+this.value; document.getElementById('cap-val').textContent='$'+this.value+'M'; updateCapBlocker();">
                         <span class="settings-val" id="cap-val">$${s.salaryCap}M</span>
                     </div>
                 </div>
@@ -1902,8 +2132,7 @@ function goTrades() {
     tradeScreenState.myOffer = [];
     tradeScreenState.theirOffer = [];
     tradeScreenState.targetTeam = null;
-    const allScreens = ["menu","settings","office","roster","league","draft"];
-    allScreens.forEach(id => { const el = document.getElementById(id); if(el) el.style.display = "none"; });
+    hideAll();
     document.getElementById("trades").style.display = "block";
     renderTradeScreen();
 }
@@ -1994,11 +2223,11 @@ function renderProposeTrade(el, playerTeam) {
     const capUsed = getCapUsed(playerTeam);
     const capLeft = Math.round((SALARY_CAP - capUsed) * 10) / 10;
     const salaryOut = tradeScreenState.myOffer.filter(a => a.type === "player").reduce((s, a) => s + (a.player.contract_salary || 0), 0);
-    const salaryIn  = tradeScreenState.theirOffer.filter(a => a.type === "player").reduce((s, a) => s + calcMarketSalary(a.player), 0);
-    const capDelta  = Math.round((salaryIn - salaryOut) * 10) / 10;
+    const salaryIn = tradeScreenState.theirOffer.filter(a => a.type === "player").reduce((s, a) => s + calcMarketSalary(a.player), 0);
+    const capDelta = Math.round((salaryIn - salaryOut) * 10) / 10;
     const newCapUsed = Math.round((capUsed + capDelta) * 10) / 10;
     const newCapLeft = Math.round((SALARY_CAP - newCapUsed) * 10) / 10;
-    const capOver   = newCapUsed > SALARY_CAP;
+    const capOver = newCapUsed > SALARY_CAP;
     const capDeltaStr = capDelta > 0 ? `+$${capDelta}M` : capDelta < 0 ? `-$${Math.abs(capDelta)}M` : "±$0M";
     const capDeltaClass = capOver ? "cap-delta-over" : capDelta > 0 ? "cap-delta-add" : "cap-delta-save";
 
@@ -2012,16 +2241,16 @@ function renderProposeTrade(el, playerTeam) {
             byYear[yr].push(pk);
         }
         let html = '';
-        for (const yr of Object.keys(byYear).sort((a,b) => a-b)) {
+        for (const yr of Object.keys(byYear).sort((a, b) => a - b)) {
             const pickYear = year + parseInt(yr);
             html += `<div class="trade-avail-header trade-pick-year-header">${pickYear} PICKS</div>`;
             for (const pk of byYear[yr]) {
                 const inOffer = (sideStr === 'my' ? tradeScreenState.myOffer : tradeScreenState.theirOffer)
                     .some(a => a.type === "pick" && a.round === pk.round && a.futureYear === (pk.futureYear || 0));
                 const pickLabel = pk.pick ? `R${pk.round} · #${pk.pick}` : `R${pk.round} · (future)`;
-                const pickData = JSON.stringify({pick: pk.pick, overall: pk.overall, futureYear: pk.futureYear || 0, _origTeam: pk._origTeam});
+                const pickData = JSON.stringify({ pick: pk.pick, overall: pk.overall, futureYear: pk.futureYear || 0, _origTeam: pk._origTeam });
                 const val = Math.round(pickValue(pk.round) * Math.pow(0.80, pk.futureYear || 0));
-                html += `<div class="trade-avail-item${inOffer ? ' in-offer' : ''}" onclick='addToOffer("${sideStr}","pick",null,${pk.round},${JSON.stringify({pick: pk.pick, overall: pk.overall, futureYear: pk.futureYear || 0, _origTeam: pk._origTeam})})'>
+                html += `<div class="trade-avail-item${inOffer ? ' in-offer' : ''}" onclick='addToOffer("${sideStr}","pick",null,${pk.round},${JSON.stringify({ pick: pk.pick, overall: pk.overall, futureYear: pk.futureYear || 0, _origTeam: pk._origTeam })})'>
                     <span class="trade-avail-pos">R${pk.round}</span>
                     <span class="trade-avail-name">${pickLabel}</span>
                     <span class="trade-avail-val">${val}</span>
@@ -2070,7 +2299,7 @@ function renderProposeTrade(el, playerTeam) {
     html += `</div><div class="trade-avail-header">MY PLAYERS</div>`;
     for (const p of playerTeam.sortedPlayers()) {
         const inOffer = tradeScreenState.myOffer.some(a => a.type === "player" && a.player === p);
-        html += `<div class="trade-avail-item${inOffer ? ' in-offer' : ''}" onclick="addToOffer('my','player','${p.name.replace(/'/g,"\\'")}')">
+        html += `<div class="trade-avail-item${inOffer ? ' in-offer' : ''}" onclick="addToOffer('my','player','${p.name.replace(/'/g, "\\'")}')">
             <span class="trade-avail-pos">${p.position}</span>
             <span class="trade-avail-name">${p.name}</span>
             <span class="trade-avail-stars">${toStars(p.overall())}</span>
@@ -2088,7 +2317,7 @@ function renderProposeTrade(el, playerTeam) {
     if (tradeScreenState.theirOffer.length === 0) html += `<div class="trade-empty-slot">Click players/picks below to add</div>`;
     for (let i = 0; i < tradeScreenState.theirOffer.length; i++) {
         const a = tradeScreenState.theirOffer[i];
-        const estSal = a.type === "player" ? ` · est. $${Math.round(calcMarketSalary(a.player)*10)/10}M/yr` : '';
+        const estSal = a.type === "player" ? ` · est. $${Math.round(calcMarketSalary(a.player) * 10) / 10}M/yr` : '';
         html += `<div class="trade-asset trade-asset--theirs" onclick="removeFromOffer('their',${i})">
             ${assetLabel(a)}${estSal} <span class="trade-asset-val">${assetValue(a)}</span> <span class="trade-remove">✕</span>
         </div>`;
@@ -2097,7 +2326,7 @@ function renderProposeTrade(el, playerTeam) {
     for (const p of cpuTeam.sortedPlayers()) {
         const inOffer = tradeScreenState.theirOffer.some(a => a.type === "player" && a.player === p);
         const estSal = Math.round(calcMarketSalary(p) * 10) / 10;
-        html += `<div class="trade-avail-item${inOffer ? ' in-offer' : ''}" onclick="addToOffer('their','player','${p.name.replace(/'/g,"\\'")}')">
+        html += `<div class="trade-avail-item${inOffer ? ' in-offer' : ''}" onclick="addToOffer('their','player','${p.name.replace(/'/g, "\\'")}')">
             <span class="trade-avail-pos">${p.position}</span>
             <span class="trade-avail-name">${p.name}</span>
             <span class="trade-avail-stars">${toStars(p.overall())}</span>
@@ -2110,7 +2339,7 @@ function renderProposeTrade(el, playerTeam) {
 
     html += `<div class="trade-actions">
         <button onclick="submitTrade()" class="trade-submit-btn"${capOver ? ' disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>SEND OFFER</button>
-        ${capOver ? `<span class="trade-cap-block-msg">Cannot trade — you would exceed the salary cap by $${Math.round((newCapUsed-SALARY_CAP)*10)/10}M</span>` : ''}
+        ${capOver ? `<span class="trade-cap-block-msg">Cannot trade — you would exceed the salary cap by $${Math.round((newCapUsed - SALARY_CAP) * 10) / 10}M</span>` : ''}
         <div id="trade-result" class="trade-result"></div>
     </div></div>`;
 
@@ -2216,10 +2445,10 @@ function submitTrade() {
     // Cap check: would this trade put us over the salary cap?
     const capUsed = getCapUsed(playerTeam);
     const salaryOut = myOffer.filter(a => a.type === "player").reduce((s, a) => s + (a.player.contract_salary || 0), 0);
-    const salaryIn  = theirOffer.filter(a => a.type === "player").reduce((s, a) => s + calcMarketSalary(a.player), 0);
+    const salaryIn = theirOffer.filter(a => a.type === "player").reduce((s, a) => s + calcMarketSalary(a.player), 0);
     const newCapUsed = capUsed + salaryIn - salaryOut;
     if (newCapUsed > SALARY_CAP) {
-        document.getElementById("trade-result").textContent = `⚠ Over salary cap by $${Math.round((newCapUsed - SALARY_CAP)*10)/10}M. Clear cap space first.`;
+        document.getElementById("trade-result").textContent = `⚠ Over salary cap by $${Math.round((newCapUsed - SALARY_CAP) * 10) / 10}M. Clear cap space first.`;
         document.getElementById("trade-result").className = "trade-result trade-result--rejected";
         return;
     }
@@ -2330,78 +2559,126 @@ function captureDraftOrder() {
 }
 
 function assignDraftPicks(draftOrder) {
-    // draftOrder is pre-captured before reset, sorted worst→best
-    // Separate current-year fromTrade picks (being used now) from future-year traded picks (keep for later)
-    const tradedPicks = {}; // current year traded picks
-    const futureTradedPicks = {}; // future year traded picks (futureYear > 0)
+    // ── 1. Snapshot traded picks BEFORE we wipe anything ────────────
+    // At this point draftPicks contains ONLY future picks (futureYear>0)
+    // because clearUsedDraftPicks() was called at draft end last season.
+    //
+    // Split into:
+    //   • tradedCurrentPicks  → futureYear===1 picks that now come due
+    //                           (they were "next year" last season, now
+    //                            they become this year's picks)
+    //   • futureCarryPicks    → futureYear>1, not yet due
+    const tradedCurrentPicks = {};  // team.name → [picks maturing this year]
+    const futureCarryPicks = {};  // team.name → [picks staying future]
+
     for (const team of allteams) {
-        const allTraded = (team.draftPicks || []).filter(p => p.fromTrade);
-        // Future picks: futureYear is decremented each season; if > 1 keep waiting, if 1 they redeem this season
-        tradedPicks[team.name] = allTraded.filter(p => !p.futureYear || p.futureYear <= 0);
-        futureTradedPicks[team.name] = allTraded.filter(p => p.futureYear > 0);
+        tradedCurrentPicks[team.name] = (team.draftPicks || []).filter(
+            p => p.fromTrade && (p.futureYear || 0) === 1
+        );
+        futureCarryPicks[team.name] = (team.draftPicks || []).filter(
+            p => p.fromTrade && (p.futureYear || 0) > 1
+        );
     }
 
-    // Reset all picks
+    // ── 2. Build a set of slots traded away this year ────────────────
+    // A slot traded away = the _origTeam's positional slot was sent to
+    // another team, so the origTeam must NOT also receive that slot.
+    const tradedAwaySlots = {}; // origTeam.name → Set<"round-pickNum">
+    for (const team of allteams) {
+        for (const pk of tradedCurrentPicks[team.name]) {
+            const origName = pk._origTeam || "";
+            if (!tradedAwaySlots[origName]) tradedAwaySlots[origName] = new Set();
+            // The slot number was stored in pk.pick when the trade executed
+            tradedAwaySlots[origName].add(`${pk.round}-${pk.pick}`);
+        }
+    }
+
+    // ── 3. Reset all draftPicks ──────────────────────────────────────
     for (const team of allteams) {
         team.draftPicks = [];
     }
 
-    // Track which base current-year picks have been traded away
-    const tradedAwayBase = {};
-    for (const team of allteams) {
-        tradedAwayBase[team.name] = new Set();
-    }
-
-    for (const team of allteams) {
-        for (const pk of tradedPicks[team.name]) {
-            const origTeam = draftOrder[pk.pick - 1];
-            if (origTeam && origTeam.name !== team.name) {
-                tradedAwayBase[origTeam.name].add(`${pk.round}-${pk.pick}`);
-            }
-        }
-    }
-
-    // Assign current-year base picks
-    for (let round = 1; round <= DRAFT_ROUNDS; round++) {
+    // ── 4. Assign base picks for this season ────────────────────────
+    // Each team owns their own positional slot unless traded away.
+    const numRounds = gameSettings.draftRounds || DRAFT_ROUNDS;
+    for (let round = 1; round <= numRounds; round++) {
         for (let i = 0; i < draftOrder.length; i++) {
-            const pickNum = (round - 1) * draftOrder.length + (i + 1);
             const team = draftOrder[i];
-            const key = `${round}-${i + 1}`;
-            if (!tradedAwayBase[team.name].has(key)) {
-                team.draftPicks.push({ round, pick: i + 1, overall: pickNum, futureYear: 0 });
-            }
+            const slotNum = i + 1;
+            const overallNum = (round - 1) * draftOrder.length + slotNum;
+            const key = `${round}-${slotNum}`;
+
+            // Skip if this slot was traded to another team
+            if (tradedAwaySlots[team.name]?.has(key)) continue;
+
+            team.draftPicks.push({
+                round,
+                pick: slotNum,
+                overall: overallNum,
+                futureYear: 0
+            });
         }
     }
 
-    // Restore current-year traded picks
+    // ── 5. Add maturing traded picks (futureYear 1 → 0) ─────────────
     for (const team of allteams) {
-        for (const pk of tradedPicks[team.name]) {
-            team.draftPicks.push({ round: pk.round, pick: pk.pick, overall: pk.overall, fromTrade: true, futureYear: 0 });
+        for (const pk of tradedCurrentPicks[team.name]) {
+            // Resolve the actual draft slot number from draftOrder
+            // (the origTeam's position in the order)
+            const origTeam = draftOrder.find(t => t.name === pk._origTeam);
+            const slotNum = origTeam
+                ? draftOrder.indexOf(origTeam) + 1
+                : (pk.pick || 1);
+            const overallNum = (pk.round - 1) * draftOrder.length + slotNum;
+
+            team.draftPicks.push({
+                round: pk.round,
+                pick: slotNum,
+                overall: overallNum,
+                fromTrade: true,
+                futureYear: 0,
+                _origTeam: pk._origTeam
+            });
         }
     }
 
-    // Restore future picks — decrement their futureYear by 1 (they're one year closer now)
+    // ── 6. Carry forward future traded picks (decrement futureYear) ──
     for (const team of allteams) {
-        for (const pk of futureTradedPicks[team.name]) {
-            team.draftPicks.push({ ...pk, futureYear: pk.futureYear - 1 });
+        for (const pk of futureCarryPicks[team.name]) {
+            team.draftPicks.push({
+                ...pk,
+                futureYear: pk.futureYear - 1
+            });
         }
     }
 
-    // Add future year picks (year+1, year+2) as tradeable assets for all teams
-    // These are "own" future picks teams haven't traded away yet
+    // ── 7. Add own future picks (year+1 and year+2) ──────────────────
+    // Only add if the pick hasn't already been traded away to someone else.
     for (let futYr = 1; futYr <= 2; futYr++) {
-        for (let round = 1; round <= DRAFT_ROUNDS; round++) {
+        for (let round = 1; round <= numRounds; round++) {
             for (const team of allteams) {
-                // Check if this future pick was already traded away
-                const alreadyTraded = allteams.some(other =>
+                // Has this future pick already been sent to another team?
+                const alreadyTradedOut = allteams.some(other =>
                     other !== team &&
                     (other.draftPicks || []).some(pk =>
-                        pk.fromTrade && pk.futureYear === futYr &&
-                        pk.round === round && pk._origTeam === team.name
+                        pk.fromTrade &&
+                        (pk.futureYear || 0) === futYr &&
+                        pk.round === round &&
+                        pk._origTeam === team.name
                     )
                 );
-                if (!alreadyTraded) {
-                    team.draftPicks.push({ round, pick: 0, overall: 0, futureYear: futYr, _origTeam: team.name });
+                // Is it already in our carry-forward pile (would be double-counted)?
+                const inCarry = (futureCarryPicks[team.name] || []).some(pk =>
+                    pk.round === round && (pk.futureYear - 1) === futYr
+                );
+                if (!alreadyTradedOut && !inCarry) {
+                    team.draftPicks.push({
+                        round,
+                        pick: 0,
+                        overall: 0,
+                        futureYear: futYr,
+                        _origTeam: team.name
+                    });
                 }
             }
         }
@@ -2487,6 +2764,79 @@ function buildPickList(draftOrder) {
 }
 
 // Start the draft — draftOrder is pre-captured before season reset
+
+// ── PRE-DRAFT SPLASH ──────────────────────────────────────────────────
+// Shown between the re-sign screen and the draft, so the player knows
+// what's coming and has a moment to breathe.
+function showPreDraftSplash(preDraftOrder) {
+    hideAll();
+    // Store draft order globally so the button can access it
+    window._pendingDraftOrder = preDraftOrder;
+
+    let el = document.getElementById("pre-draft-splash");
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "pre-draft-splash";
+        el.style.cssText = [
+            "position:fixed", "inset:0", "z-index:9997",
+            "background:var(--bg)",
+            "display:flex", "flex-direction:column",
+            "align-items:center", "justify-content:center"
+        ].join(";");
+        document.body.appendChild(el);
+    }
+
+    // Build draft order preview
+    const top10 = preDraftOrder.slice(0, 10);
+    const playerTeam = allteams.find(t => t.playerTeam);
+    const playerSlot = preDraftOrder.findIndex(t => t === playerTeam) + 1;
+
+    let orderRows = top10.map((t, i) => {
+        const isPlayer = t === playerTeam;
+        return '<div class="pds-pick-row ' + (isPlayer ? 'pds-pick-row--player' : '') + '">' +
+            '<span class="pds-pick-num">#' + (i + 1) + '</span>' +
+            '<span class="pds-pick-team">' + t.name + '</span>' +
+            '<span class="pds-pick-record">' + t.wins + '–' + t.losses + '</span>' +
+            (isPlayer ? '<span class="pds-pick-you">YOU</span>' : '') +
+            '</div>';
+    }).join('');
+
+    if (playerSlot > 10) {
+        orderRows += '<div class="pds-pick-row pds-pick-ellipsis">· · ·</div>';
+        orderRows += '<div class="pds-pick-row pds-pick-row--player">' +
+            '<span class="pds-pick-num">#' + playerSlot + '</span>' +
+            '<span class="pds-pick-team">' + (playerTeam ? playerTeam.name : '') + '</span>' +
+            '<span class="pds-pick-record">' + (playerTeam ? playerTeam.wins + '–' + playerTeam.losses : '') + '</span>' +
+            '<span class="pds-pick-you">YOU</span></div>';
+    }
+
+    el.innerHTML = '<div class="pds-card">' +
+        '<div class="pds-season-label">SEASON ' + (year - 1) + ' COMPLETE</div>' +
+        '<div class="pds-title">DRAFT DAY</div>' +
+        '<div class="pds-subtitle">The annual draft is about to begin. Worst records pick first.</div>' +
+        '<div class="pds-order-section">' +
+        '<div class="pds-order-label">DRAFT ORDER — ROUND 1</div>' +
+        '<div class="pds-order-list">' + orderRows + '</div>' +
+        '</div>' +
+        '<div class="pds-rounds-info">' +
+        gameSettings.draftRounds + ' rounds · ' + allteams.length + ' teams · ' + (allteams.length * gameSettings.draftRounds) + ' total picks' +
+        '</div>' +
+        '<button class="pds-go-btn" onclick="launchDraftFromSplash()">ENTER THE DRAFT →</button>' +
+        '</div>';
+    el.style.display = "flex";
+}
+
+function launchDraftFromSplash() {
+    const el = document.getElementById("pre-draft-splash");
+    if (el) el.style.display = "none";
+    const order = window._pendingDraftOrder;
+    window._pendingDraftOrder = null;
+    if (order) {
+        document.getElementById("draft").style.display = "flex";
+        startDraft(order);
+    }
+}
+
 function startDraft(draftOrder) {
     const order = assignDraftPicks(draftOrder);
     draftState.prospects = generateProspects(allteams.length);
@@ -2548,7 +2898,7 @@ function renderDraftRosterPanel() {
 
     for (const pos of posOrder) {
         const players = grouped[pos];
-        const needs = { QB:1, K:1, RB:1, WR:2, TE:1, OL:2, DL:2, LB:2, DB:2 };
+        const needs = { QB: 1, K: 1, RB: 1, WR: 2, TE: 1, OL: 2, DL: 2, LB: 2, DB: 2 };
         const need = needs[pos] || 1;
         const hasEnough = players.length >= need;
 
@@ -2580,6 +2930,59 @@ function toggleDraftRoster() {
     renderDraftScreen();
 }
 
+
+// Called after draft ends — shows new season splash then menu
+function showNewSeasonSplash() {
+    hideAll();
+    let el = document.getElementById("new-season-splash");
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "new-season-splash";
+        el.style.cssText = [
+            "position:fixed", "inset:0", "z-index:9996",
+            "background:var(--bg)",
+            "display:flex", "flex-direction:column",
+            "align-items:center", "justify-content:center"
+        ].join(";");
+        document.body.appendChild(el);
+    }
+
+    const playerTeam = allteams.find(t => t.playerTeam);
+    const off = playerTeam ? playerTeam.offenseRating() : '?';
+    const def = playerTeam ? playerTeam.defenseRating() : '?';
+    const roster = playerTeam ? playerTeam.players.length : 0;
+
+    el.innerHTML = '<div class="nss-card">' +
+        '<div class="nss-season-num">SEASON ' + year + '</div>' +
+        '<div class="nss-title">WELCOME BACK</div>' +
+        '<div class="nss-sub">The new season is ready. Your roster has been set.</div>' +
+        (playerTeam ? (
+            '<div class="nss-team-name">' + playerTeam.name + '</div>' +
+            '<div class="nss-stats-row">' +
+            '<div class="nss-stat"><span class="nss-stat-label">OFFENSE</span><span class="nss-stat-val">' + off + '</span></div>' +
+            '<div class="nss-stat"><span class="nss-stat-label">DEFENSE</span><span class="nss-stat-val">' + def + '</span></div>' +
+            '<div class="nss-stat"><span class="nss-stat-label">ROSTER</span><span class="nss-stat-val">' + roster + '</span></div>' +
+            '</div>'
+        ) : '') +
+        '<button class="nss-go-btn" onclick="launchNewSeason()">START SEASON ' + year + ' →</button>' +
+        '</div>';
+    el.style.display = "flex";
+}
+
+function launchNewSeason() {
+    const el = document.getElementById("new-season-splash");
+    if (el) el.style.display = "none";
+    // Now show the fresh menu with no games played
+    goMenu();
+    renderSchedule();
+    renderDivisionBoxes();
+    renderDraftPicksBadge();
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    // Scroll schedule to start
+    const schedEl = document.getElementById("schedule");
+    if (schedEl) schedEl.scrollLeft = 0;
+}
+
 function skipDraft() {
     while (draftState.currentPickIdx < draftState.pickList.length) {
         const current = draftState.pickList[draftState.currentPickIdx];
@@ -2589,19 +2992,27 @@ function skipDraft() {
         pick.team = current.team;
         pick.draftRound = current.round;
         pick.draftPick = current.overall;
-        //I want skip draft to delete our picks if we dont need them
-        //current.team.players.push(pick);
+        if (!current.team.playerTeam) {
+            current.team.players.push(pick);
+        }
         const idx = available.indexOf(pick);
         if (idx !== -1) available.splice(idx, 1);
-        draftState.draftLog.push({ overall: current.overall, round: current.round, pick: current.pick, team: current.team.name, player: pick.name, pos: pick.position, ovr: pick.overall() });
+        draftState.draftLog.push({
+            overall: current.overall,
+            round: current.round,
+            pick: current.pick,
+            team: current.team.name,
+            player: pick.name,
+            pos: pick.position,
+            ovr: pick.overall()
+        });
         draftState.currentPickIdx++;
     }
     draftState.active = false;
+    clearUsedDraftPicks();   // ← NEW: consume all futureYear===0 picks
     cpuTrimRosters();
     document.getElementById("draft").style.display = "none";
-    document.getElementById("menu").style.display = "block";
-    renderDraftPicksBadge();
-    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    showNewSeasonSplash();
 }
 
 // Advance past all CPU picks until it's the player's turn (or draft ends)
@@ -2640,16 +3051,15 @@ function advanceDraftToCurrent() {
         draftState.currentPickIdx++;
     }
 
-    // Draft over
+    // Draft over — clear used picks BEFORE showing new season splash
     draftState.active = false;
+    clearUsedDraftPicks();   // ← NEW: consume all futureYear===0 picks
     cpuTrimRosters();
     renderDraftScreen();
     setTimeout(() => {
         document.getElementById("draft").style.display = "none";
-        document.getElementById("menu").style.display = "block";
-        renderDraftPicksBadge();
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
-    }, 2500);
+        showNewSeasonSplash();
+    }, 2000);
 }
 
 // Render the draft screen
@@ -2767,21 +3177,66 @@ function renderDraftScreen() {
 // Player makes a pick
 function playerDraftPick(prospectIdx) {
     if (!draftState.active) return;
-
     const playerTeam = allteams.find(t => t.playerTeam);
     const currentEntry = draftState.pickList[draftState.currentPickIdx];
     if (!currentEntry || currentEntry.team !== playerTeam) return;
+    const pick = draftState.prospects[prospectIdx];
+    if (!pick) return;
 
+    // Show confirmation modal instead of picking immediately
+    showDraftConfirm(prospectIdx, pick, currentEntry);
+}
+
+function showDraftConfirm(prospectIdx, pick, currentEntry) {
+    let modal = document.getElementById("draft-confirm-modal");
+    if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "draft-confirm-modal";
+        modal.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;";
+        document.body.appendChild(modal);
+    }
+
+    const stars = toStars(pick.overall());
+    const rookieSal = { 1: 4, 2: 2.5, 3: 1.5 };
+    const sal = rookieSal[currentEntry.round] || 1.5;
+
+    modal.innerHTML = `
+        <div class="dfc-card">
+            <div class="dfc-label">ROUND ${currentEntry.round} · PICK #${currentEntry.overall}</div>
+            <div class="dfc-name">${pick.name}</div>
+            <div class="dfc-meta">
+                <span class="dfc-pos">${pick.position}</span>
+                <span class="dfc-stars">${stars}</span>
+            </div>
+            <div class="dfc-attrs">
+                <div class="dfc-attr"><span class="dfc-attr-lbl">STR</span><span class="dfc-attr-val">${pick.strength}</span></div>
+                <div class="dfc-attr"><span class="dfc-attr-lbl">SPD</span><span class="dfc-attr-val">${pick.speed}</span></div>
+                <div class="dfc-attr"><span class="dfc-attr-lbl">STA</span><span class="dfc-attr-val">${pick.stamina}</span></div>
+            </div>
+            <div class="dfc-contract">4-year rookie deal · $${sal}M/yr</div>
+            <div class="dfc-actions">
+                <button class="dfc-btn dfc-btn--confirm" onclick="confirmDraftPick(${prospectIdx})">✓ SELECT ${pick.name.split(' ').pop().toUpperCase()}</button>
+                <button class="dfc-btn dfc-btn--cancel" onclick="cancelDraftPick()">✕ BACK</button>
+            </div>
+        </div>`;
+    modal.style.display = "flex";
+}
+
+function confirmDraftPick(prospectIdx) {
+    document.getElementById("draft-confirm-modal").style.display = "none";
+
+    if (!draftState.active) return;
+    const playerTeam = allteams.find(t => t.playerTeam);
+    const currentEntry = draftState.pickList[draftState.currentPickIdx];
+    if (!currentEntry || currentEntry.team !== playerTeam) return;
     const pick = draftState.prospects[prospectIdx];
     if (!pick) return;
 
     pick.team = playerTeam;
     pick.draftRound = currentEntry.round;
     pick.draftPick = currentEntry.overall;
-    // Assign rookie contract for player-team drafted players
     assignRookieContract(pick);
     playerTeam.players.push(pick);
-
     draftState.prospects.splice(prospectIdx, 1);
 
     draftState.draftLog.push({
@@ -2796,16 +3251,17 @@ function playerDraftPick(prospectIdx) {
 
     draftState.currentPickIdx++;
     renderDraftScreen();
-
-    // Continue CPU picks
     setTimeout(() => advanceDraftToCurrent(), 300);
 }
 
-// Show draft picks summary in the #info area
+function cancelDraftPick() {
+    document.getElementById("draft-confirm-modal").style.display = "none";
+}
+
 function renderDraftPicksBadge() {
     const playerTeam = allteams.find(t => t.playerTeam);
     if (!playerTeam) return;
-    // Group picks by year and round for display
+    // Only show current-year picks (futureYear === 0)
     const currentPicks = playerTeam.draftPicks.filter(pk => (pk.futureYear || 0) === 0);
     const picksByRound = {};
     for (const pk of currentPicks) {
@@ -2814,14 +3270,17 @@ function renderDraftPicksBadge() {
     }
     let txt = `${year}: `;
     for (let r = 1; r <= DRAFT_ROUNDS; r++) {
-        const picks = picksByRound[r] || [];
-        txt += `R${r}:${picks.map(p => p ? `#${p}` : '✓').join(",") || "—"} `;
+        const picks = (picksByRound[r] || []).sort((a, b) => a - b);
+        if (picks.length === 0) {
+            txt += `R${r}:— `;
+        } else {
+            txt += `R${r}:${picks.map(p => p ? `#${p}` : '✓').join(",")} `;
+        }
     }
-    // Show count of future picks
+    // Show count of future picks (year+1 and year+2 own picks only, not noise)
     const futCount = playerTeam.draftPicks.filter(pk => (pk.futureYear || 0) > 0).length;
     if (futCount > 0) txt += ` +${futCount} future`;
     const infoEl = document.getElementById("info");
-    // Update or create draft picks span
     let dpSpan = document.getElementById("info-draft-picks");
     if (!dpSpan) {
         dpSpan = document.createElement("span");
@@ -2860,11 +3319,29 @@ function simMatch(team1, team2) {
         const variance = clp(CFG.minVariance + (10 - def) * CFG.variancePerOff, CFG.minVariance, CFG.maxVariance);
         const noise = rf(-variance, variance);
         const extraNoise = rf(-variance * 0.7, variance * 0.7);
-        let score = basePts + noise + extraNoise;
-        if (prob(CFG.blowoutChance)) score += CFG.blowoutBonus;
-        if (prob(CFG.shutoutChance)) score = Math.min(score, CFG.shutoutMax);
-        score = Math.round(clp(score, CFG.minScore, CFG.maxScore));
-        if (score % 3 === 2 && score > 2) score += Math.random() < 0.5 ? 1 : -1;
+        let rawScore = basePts + noise + extraNoise;
+        if (prob(CFG.blowoutChance)) rawScore += CFG.blowoutBonus;
+        if (prob(CFG.shutoutChance)) rawScore = Math.min(rawScore, CFG.shutoutMax);
+        rawScore = clp(rawScore, CFG.minScore, CFG.maxScore);
+
+        // ── Snap to realistic NFL scores ─────────────────────────────
+        // NFL scores are built from: TD(6) + PAT(1 or 2), FG(3), Safety(2)
+        // Valid scores: 0,2,3,6,7,8,9,10,13,14,16,17,20,21,23,24,27,28,30,31,34,35,37,38,41,42...
+        // Strategy: figure out TDs + PATs + FGs that sum closest to rawScore,
+        // preserving magnitude (blowout stays blowout, low score stays low).
+        const tds = Math.round(clp(rawScore / 7.5, 0, 8));
+        const ptAfterTd = tds * 7; // assume PAT made (sometimes go for 2)
+        const remainder = Math.max(0, Math.round(rawScore) - ptAfterTd);
+        const fgs = Math.round(clp(remainder / 3, 0, 5));
+        let score = tds * 7 + fgs * 3;
+        // Occasionally swap a PAT for 2-pt conversion on one TD
+        if (tds > 0 && prob(0.15)) score -= 1; // missed PAT
+        if (tds > 0 && prob(0.10)) score += 1; // 2-pt conversion
+        // Occasionally add a safety
+        if (prob(0.08)) score += 2;
+        score = Math.round(clp(score, 0, CFG.maxScore));
+        // Ensure minimum meaningful score (if team scored at all, at least a FG)
+        if (rawScore >= 3 && score < 3) score = 3;
         return score;
     }
 
@@ -3161,8 +3638,28 @@ function simMatch(team1, team2) {
 
     team1.results = team1.results || [];
     team2.results = team2.results || [];
-    team1.results.push({ opponent: team2, pf: finalT1, pa: finalT2, win: finalT1 > finalT2 });
-    team2.results.push({ opponent: team1, pf: finalT2, pa: finalT1, win: finalT2 > finalT1 });
+
+    // Build box score snapshots for both teams (capture stats at this week)
+    function buildBoxScore(team, weekIdx) {
+        return team.players
+            .filter(p => {
+                const wk = p.stats.week[weekIdx];
+                if (!wk) return false;
+                return Object.values(wk).some(v => v > 0);
+            })
+            .map(p => ({
+                name: p.name,
+                position: p.position,
+                overall: p.overall(),
+                stats: { ...p.stats.week[weekIdx] }
+            }));
+    }
+
+    const t1BoxScore = buildBoxScore(team1, current_week);
+    const t2BoxScore = buildBoxScore(team2, current_week);
+
+    team1.results.push({ opponent: team2, pf: finalT1, pa: finalT2, win: finalT1 > finalT2, boxScore: { own: t1BoxScore, opp: t2BoxScore, oppName: team2.name } });
+    team2.results.push({ opponent: team1, pf: finalT2, pa: finalT1, win: finalT2 > finalT1, boxScore: { own: t2BoxScore, opp: t1BoxScore, oppName: team1.name } });
 
     return [winner, finalT1, finalT2];
 }
@@ -3171,8 +3668,11 @@ function undoMatchRecord(t1, t2, result) {
     const winner = result[0];
     const loser = winner === t1 ? t2 : t1;
     winner.wins--; loser.losses--;
-    winner.pf -= result[1]; winner.pa -= result[2];
-    loser.pf -= result[2]; loser.pa -= result[1];
+    // result[1] is always t1's score, result[2] is always t2's score
+    const winnerScore = winner === t1 ? result[1] : result[2];
+    const loserScore = winner === t1 ? result[2] : result[1];
+    winner.pf -= winnerScore; winner.pa -= loserScore;
+    loser.pf -= loserScore; loser.pa -= winnerScore;
 }
 
 var year = 2026;
@@ -3187,6 +3687,20 @@ function cont() {
     SALARY_CAP = gameSettings.salaryCap;
     TRADE_DEADLINE_WEEK = gameSettings.tradeDeadlineWeek;
     var playoffs = current_week >= 17;
+
+    // Block play if player team is over the salary cap
+    if (!playoffs) {
+        const _pt = allteams.find(t => t.playerTeam);
+        if (_pt) {
+            const _capUsed = getCapUsed(_pt);
+            if (_capUsed > SALARY_CAP) {
+                const _over = Math.round((_capUsed - SALARY_CAP) * 10) / 10;
+                const wkEl = document.getElementById("week");
+                if (wkEl) wkEl.innerHTML = `<div style="color:var(--red);font-family:var(--head);font-size:16px;font-weight:700;letter-spacing:0.06em;padding:8px 0;">⛔ OVER THE SALARY CAP BY $${_over}M</div><div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:4px;">You cannot advance until you are under the $${SALARY_CAP}M cap. Cut or renegotiate contracts in the Office.</div>`;
+                return;
+            }
+        }
+    }
 
     if (!playoffs) {
         const weekGames = season_schedule[current_week];
@@ -3213,6 +3727,7 @@ function cont() {
             // Check for player demands after morale update
             checkPlayerDemands(playerTeam);
         }
+        logWeek(tt);
     } else {
         if (current_week === 17) {
             function calcFantasyPoints(player) {
@@ -3416,16 +3931,13 @@ function cont() {
                     // Start resign process — after it closes, launch draft
                     resignState._onComplete = () => {
                         document.getElementById("office").style.display = "none";
-                        document.getElementById("draft").style.display = "flex";
-                        startDraft(preDraftOrder);
+                        showPreDraftSplash(preDraftOrder);
                     };
                     startResignProcess();
                 }, 100);
             } else {
                 setTimeout(() => {
-                    document.getElementById("menu").style.display = "none";
-                    document.getElementById("draft").style.display = "flex";
-                    startDraft(preDraftOrder);
+                    showPreDraftSplash(preDraftOrder);
                 }, 100);
             }
             return;
@@ -3647,11 +4159,20 @@ function renderSchedule() {
             (isCurrent ? " schedule-current" : "") +
             (isPlayed ? (result.win ? " schedule-win" : " schedule-loss") : "");
 
+        if (isPlayed) card.style.cursor = "pointer";
+
         card.innerHTML = `
             <span class="schedule-week">WK ${i + 1}</span>
             <span class="schedule-opp">${game.opponent.name}</span>
             <span class="schedule-opp">${game.opponent.wins}-${game.opponent.losses}<br>
             ${isPlayed ? `<span class="schedule-result">${result.pf}-${result.pa}</span>` : ""}`;
+
+        if (isPlayed) {
+            (function (r, weekNum) {
+                card.addEventListener("click", () => showBoxScore(r, weekNum));
+            })(result, i + 1);
+        }
+
         el.appendChild(card);
     }
 
@@ -3664,19 +4185,135 @@ function renderSchedule() {
     }
 
     playoffResults.forEach((result, idx) => {
-        // Use the stored round name (set when simulated) to avoid off-by-one with bye weeks
         const roundName = result.playoffRound || `RD ${idx + 1}`;
         const card = document.createElement("div");
         const isCurrentPlayoff = (idx + 17 === current_week);
         card.className = "schedule-card schedule-playoff" +
             (isCurrentPlayoff ? " schedule-current" : "") +
             (result.win ? " schedule-win" : " schedule-loss");
+        if (result.win !== undefined) card.style.cursor = "pointer";
         card.innerHTML = `
             <span class="schedule-week">${roundName}</span>
             <span class="schedule-opp">${result.opponent.name}</span>
             <span class="schedule-result">${result.pf}–${result.pa}</span>`;
+        if (result.boxScore) {
+            (function (r, rName) {
+                card.addEventListener("click", () => showBoxScore(r, rName));
+            })(result, roundName);
+        }
         el.appendChild(card);
     });
+}
+
+// ── BOX SCORE MODAL ──────────────────────────────────────────────────
+function showBoxScore(result, weekLabel) {
+    let modal = document.getElementById("boxscore-modal");
+    if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "boxscore-modal";
+        modal.style.cssText = `
+            position:fixed;inset:0;z-index:9998;
+            background:rgba(0,0,0,0.88);
+            display:flex;align-items:flex-start;justify-content:center;
+            padding:24px;overflow-y:auto;
+        `;
+        modal.addEventListener("click", e => { if (e.target === modal) modal.style.display = "none"; });
+        document.body.appendChild(modal);
+    }
+
+    const playerTeam = allteams.find(t => t.playerTeam);
+    const bs = result.boxScore;
+    const oppName = bs?.oppName || result.opponent?.name || "Opponent";
+    const myName = playerTeam?.name || "Your Team";
+    const didWin = result.win;
+    const score = `${result.pf} – ${result.pa}`;
+
+    function statRow(label, val) {
+        if (!val && val !== 0) return '';
+        return `<div class="bs-stat-row"><span class="bs-stat-label">${label}</span><span class="bs-stat-val">${val}</span></div>`;
+    }
+
+    function renderPlayer(p) {
+        const pos = p.position;
+        const s = p.stats;
+        let statsHtml = '';
+        if (pos === "QB") {
+            statsHtml += statRow("CMP/ATT", s.completions !== undefined ? `${s.completions}/${s.attempts}` : '—');
+            statsHtml += statRow("PASS YDS", s.passing_yards);
+            statsHtml += statRow("PASS TD", s.passing_touchdowns);
+            statsHtml += statRow("INT", s.passing_interceptions);
+            if (s.rushing_yards) { statsHtml += statRow("RUSH YDS", s.rushing_yards); statsHtml += statRow("RUSH TD", s.rushing_touchdowns); }
+        } else if (pos === "RB") {
+            statsHtml += statRow("CAR", s.rushing_attempts);
+            statsHtml += statRow("RUSH YDS", s.rushing_yards);
+            statsHtml += statRow("RUSH TD", s.rushing_touchdowns);
+            if (s.receptions) { statsHtml += statRow("REC", s.receptions); statsHtml += statRow("REC YDS", s.receiving_yards); }
+        } else if (pos === "WR" || pos === "TE") {
+            statsHtml += statRow("TGT", s.receiving_targets);
+            statsHtml += statRow("REC", s.receptions);
+            statsHtml += statRow("YDS", s.receiving_yards);
+            statsHtml += statRow("TD", s.receiving_touchdowns);
+        } else if (pos === "K") {
+            statsHtml += statRow("FGM", s.fgs);
+        } else if (pos === "DL" || pos === "LB") {
+            statsHtml += statRow("TCKS", s.tackles_solo);
+            statsHtml += statRow("SACKS", s.sacks);
+            if (s.interceptions) statsHtml += statRow("INT", s.interceptions);
+        } else if (pos === "DB") {
+            statsHtml += statRow("TCKS", s.tackles_solo);
+            if (s.interceptions) statsHtml += statRow("INT", s.interceptions);
+        }
+        if (!statsHtml) return '';
+        return `<div class="bs-player-card">
+            <div class="bs-player-header">
+                <span class="bs-player-pos">${pos}</span>
+                <span class="bs-player-name">${p.name}</span>
+                <span class="bs-player-ovr">${toStars(p.overall)}</span>
+            </div>
+            <div class="bs-player-stats">${statsHtml}</div>
+        </div>`;
+    }
+
+    function renderSection(title, players) {
+        const filtered = (players || []).filter(p => {
+            const pos = p.position;
+            return Object.values(p.stats).some(v => v > 0);
+        });
+        if (!filtered.length) return '';
+        const posOrder = ["QB", "RB", "WR", "TE", "K", "OL", "DL", "LB", "DB"];
+        filtered.sort((a, b) => posOrder.indexOf(a.position) - posOrder.indexOf(b.position));
+        return `<div class="bs-team-section">
+            <div class="bs-team-title">${title}</div>
+            <div class="bs-player-grid">${filtered.map(renderPlayer).join('')}</div>
+        </div>`;
+    }
+
+    modal.innerHTML = `
+    <div class="bs-modal-card">
+        <div class="bs-header">
+            <div class="bs-score-row">
+                <div class="bs-team-score ${didWin ? 'bs-winner' : ''}">
+                    <span class="bs-team-name-lg">${myName}</span>
+                    <span class="bs-score-num">${result.pf}</span>
+                </div>
+                <div class="bs-vs">vs</div>
+                <div class="bs-team-score ${!didWin ? 'bs-winner' : ''}">
+                    <span class="bs-score-num">${result.pa}</span>
+                    <span class="bs-team-name-lg">${oppName}</span>
+                </div>
+            </div>
+            <div class="bs-week-label">WEEK ${weekLabel} · ${didWin ? '✓ WIN' : '✕ LOSS'}</div>
+            <button class="bs-close-btn" onclick="document.getElementById('boxscore-modal').style.display='none'">✕ CLOSE</button>
+        </div>
+        <div class="bs-body">
+            ${renderSection(myName.toUpperCase() + " — OFFENSE", bs?.own?.filter(p => ["QB", "RB", "WR", "TE", "K"].includes(p.position)))}
+            ${renderSection(myName.toUpperCase() + " — DEFENSE", bs?.own?.filter(p => ["DL", "LB", "DB"].includes(p.position)))}
+            ${renderSection(oppName.toUpperCase() + " — OFFENSE", bs?.opp?.filter(p => ["QB", "RB", "WR", "TE", "K"].includes(p.position)))}
+            ${renderSection(oppName.toUpperCase() + " — DEFENSE", bs?.opp?.filter(p => ["DL", "LB", "DB"].includes(p.position)))}
+        </div>
+    </div>`;
+
+    modal.style.display = "flex";
 }
 
 window.onload = function () {
